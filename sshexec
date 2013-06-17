@@ -1,0 +1,57 @@
+#!/bin/bash
+
+usage() {
+  cat <<EOS >&2
+  Usage:
+    `basename $0` [-p npasswords] [-u username] hostsfile command
+
+  Options:
+
+    -p npasswords number of passwords to try (5 top)
+    -u username   username to pass to ssh
+
+  Arguments:
+
+    hostsfile     file name holding a list of servers to connect to.
+                  Use - for standard input
+    command       command to execute
+EOS
+  exit 1
+}
+
+while getopts :p:u: opt; do
+  case $opt in
+  p) npasswords=$OPTARG
+     [ $npasswords -lt 1 -o $npasswords -gt 5 ] && usage;;
+  u) useropt="-l $OPTARG";;
+  ?) usage;;
+  esac
+done
+
+shift `expr $OPTIND - 1`
+
+[ $# -lt 2 ] && usage
+
+[ -z "$npasswords" ] && npasswords=1
+input=$1; shift
+cmd=$@
+[ -z "$input" ] && input=-
+
+. ./feedpass.inc
+
+n=1
+while [ $n -le $npasswords ]; do
+  read -s -p "Password[$n]: " password$n < /dev/tty; echo > /dev/tty
+  n=`expr $n + 1`
+done
+
+for host in `grep -v '^#' $input | grep -v '^[[:space:]]*$'`; do
+  cmd="ssh $useropt $host {$@}"
+  n=1
+  while [ $n -le $npasswords ]; do
+    password=`eval echo \\$password$n`
+    feedpass "$cmd" "$password"
+    [ $? -eq 0 ] && break
+    n=`expr $n + 1`
+  done
+done

@@ -1,0 +1,69 @@
+#!/bin/bash
+
+usage() {
+  cat <<EOS >&2
+  Usage:
+    `basename $0` [-p npasswords] [-u username] hostsfile srcpath dstpath command
+
+  Options:
+
+    -p npasswords number of passwords to try (5 top)
+    -u username   username to pass to ssh
+
+  Arguments:
+
+    hostsfile     file name holding a list of servers to connect to.
+                  Use - for standard input
+    srcpath       full path to the source script
+    dstpath       destination directory path on the servers
+    command       command to execute
+
+  Examples:
+
+    ./copy_n_run -p 2 -- list /home/me/myscript /tmp /tmp/myscript --an_option
+EOS
+  exit 1
+}
+
+while getopts :p:u: opt; do
+  case $opt in
+  p) npasswords=$OPTARG
+     [ $npasswords -lt 1 -o $npasswords -gt 5 ] && usage;;
+  u) useropt="$OPTARG@";;
+  ?) usage;;
+  esac
+done
+
+shift `expr $OPTIND - 1`
+
+[ $# -lt 4 ] && usage
+
+[ -z "$npasswords" ] && npasswords=1
+input=$1; shift
+srcpath=$1; shift
+dstpath=$1; shift
+cmd=$@
+[ -z "$input" ] && input=-
+
+. ./feedpass.inc
+
+n=1
+while [ $n -le $npasswords ]; do
+  read -s -p "Password[$n]: " password$n < /dev/tty; echo > /dev/tty
+  n=`expr $n + 1`
+done
+
+for hostname in `grep -v '^#' $input | grep -v '^[[:space:]]*$'`; do
+  copy="scp -r $srcpath $useropt$hostname:$dstpath"
+  run="ssh $useropt$hostname {$@}"
+  n=1
+  while [ $n -le $npasswords ]; do
+    password=`eval echo \\$password$n`
+    feedpass "$copy" "$password"
+    [ $? -eq 0 ] && break
+    n=`expr $n + 1`
+  done
+
+  [ $n -gt $npasswords ] && continue
+  feedpass "$run" "$password"
+done

@@ -1,0 +1,53 @@
+#!/usr/bin/expect --
+
+# Helper functions
+
+proc usage {prog} {
+  puts "Usage:"
+  puts "$prog \[-f passfile\] command\n"
+  exit 1
+}
+
+proc parse_args {argv} {
+  set password ""
+  set idx 0
+  set cmd ""
+
+  if { [lindex $argv 0] == "-f" } {
+    set passfile [lindex $argv 1]
+    set file [open $passfile r]
+    set password [read $file]
+    close $file
+    set idx 2
+  }
+
+  set cmd [lrange $argv $idx end]
+
+  return [list $password $cmd]
+}
+
+proc feedpass { password } {
+  set tries 0
+
+  expect {
+    "ssword:" {
+      if { $password == "" || $tries > 0 } { exit 5 } else { send "$password\r"; incr tries; exp_continue }
+    }
+    "SSCODE:" { exit 5 }
+    "The authenticity of host" { send "yes\r"; exp_continue }
+    eof { send_user -- $expect_out(buffer); exit [lindex [wait] 3] }
+  }
+}
+
+# Main program
+if { $argc < 1  || [lindex $argv 0] == "-f" && $argc < 3 } {
+  usage $argv0
+}
+
+log_user 0
+set args [parse_args $argv]
+set password [lindex $args 0]
+set cmd [lindex $args 1]
+
+eval spawn -noecho $cmd
+feedpass $password
